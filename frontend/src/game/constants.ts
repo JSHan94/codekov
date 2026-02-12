@@ -23,6 +23,8 @@ export const TILES = {
 export const MAP_WIDTH = 80;
 export const MAP_HEIGHT = 80;
 export const LERP_SPEED = 0.15;
+export const LERP_TARGET_MS = 80; // dt-based smoothing cap for jitter
+export const RECONCILE_SNAP_TILES = 1.0; // snap threshold (tiles)
 export const BG_COLOR = 0x1a1a2e;
 
 export const ZOOM_MIN = 0.5;

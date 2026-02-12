@@ -261,6 +261,7 @@ export class GameClient {
   private activeRooms = new Set<number>();
   private primaryIndex = -1;
   private myRoom: Room | null = null;
+  private inputAckHandler: ((seq: number) => void) | null = null;
 
   private callbacks: GameCallbacks | null = null;
   private agentCounter = 0;
@@ -269,6 +270,10 @@ export class GameClient {
 
   setCallbacks(cb: GameCallbacks) {
     this.callbacks = cb;
+  }
+
+  setInputAckHandler(cb: (seq: number) => void): void {
+    this.inputAckHandler = cb;
   }
 
   getStrategyName(sessionId: string): string {
@@ -575,6 +580,13 @@ export class GameClient {
     });
 
     room.onMessage("RAID_RESULT", () => {});
+
+    room.onMessage("INPUT_ACK", (data) => {
+      const seq = (data as { seq?: number }).seq;
+      if (typeof seq === "number") {
+        this.inputAckHandler?.(seq);
+      }
+    });
   }
 
   getMySessionId(): string | null {
@@ -598,29 +610,44 @@ export class GameClient {
     this.myRoom.send("UPDATE_STRATEGY", { strategy });
   }
 
-  sendPlayerMove(dx: number, dy: number): void {
+  sendPlayerMove(dx: number, dy: number, seq?: number, ts?: number): void {
     if (!this.myRoom) return;
-    this.myRoom.send("PLAYER_MOVE", { dx, dy });
+    const payload: Record<string, unknown> = { dx, dy };
+    if (seq !== undefined) payload.seq = seq;
+    if (ts !== undefined) payload.ts = ts;
+    this.myRoom.send("PLAYER_MOVE", payload);
   }
 
-  sendPlayerLoot(): void {
+  sendPlayerLoot(seq?: number, ts?: number): void {
     if (!this.myRoom) return;
-    this.myRoom.send("PLAYER_LOOT", {});
+    const payload: Record<string, unknown> = {};
+    if (seq !== undefined) payload.seq = seq;
+    if (ts !== undefined) payload.ts = ts;
+    this.myRoom.send("PLAYER_LOOT", payload);
   }
 
-  sendPlayerAttack(targetSessionId: string): void {
+  sendPlayerAttack(targetSessionId: string, seq?: number, ts?: number): void {
     if (!this.myRoom) return;
-    this.myRoom.send("PLAYER_ATTACK", { targetSessionId });
+    const payload: Record<string, unknown> = { targetSessionId };
+    if (seq !== undefined) payload.seq = seq;
+    if (ts !== undefined) payload.ts = ts;
+    this.myRoom.send("PLAYER_ATTACK", payload);
   }
 
-  sendPlayerAttackZombie(zombieId: string): void {
+  sendPlayerAttackZombie(zombieId: string, seq?: number, ts?: number): void {
     if (!this.myRoom) return;
-    this.myRoom.send("PLAYER_ATTACK_ZOMBIE", { zombieId });
+    const payload: Record<string, unknown> = { zombieId };
+    if (seq !== undefined) payload.seq = seq;
+    if (ts !== undefined) payload.ts = ts;
+    this.myRoom.send("PLAYER_ATTACK_ZOMBIE", payload);
   }
 
-  sendPlayerDodge(dx: number, dy: number): void {
+  sendPlayerDodge(dx: number, dy: number, seq?: number, ts?: number): void {
     if (!this.myRoom) return;
-    this.myRoom.send("PLAYER_DODGE", { dx, dy });
+    const payload: Record<string, unknown> = { dx, dy };
+    if (seq !== undefined) payload.seq = seq;
+    if (ts !== undefined) payload.ts = ts;
+    this.myRoom.send("PLAYER_DODGE", payload);
   }
 
   sendInitiateRecruitment(targetSessionId?: string): void {
