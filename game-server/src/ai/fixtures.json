@@ -1,0 +1,138 @@
+{
+  "strategyGeneration": {
+    "aggressive": {
+      "name": "AI-Aggressive",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 20}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 8}], "action": "ATTACK_NEAREST" },
+        { "priority": 2, "conditions": [{"subject": "nearest_loot_distance", "operator": "lte", "value": 5}], "action": "MOVE_TO_NEAREST_LOOT" },
+        { "priority": 3, "conditions": [{"subject": "inventory_count", "operator": "gte", "value": 5}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_RANDOM"
+    },
+    "defensive": {
+      "name": "AI-Defensive",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 40}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 4}], "action": "FLEE" },
+        { "priority": 2, "conditions": [{"subject": "nearby_loot_count", "operator": "gt", "value": 0}], "action": "MOVE_TO_NEAREST_LOOT" },
+        { "priority": 3, "conditions": [{"subject": "inventory_count", "operator": "gte", "value": 3}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_RANDOM"
+    },
+    "loot_focused": {
+      "name": "AI-Looter",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 30}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 3}], "action": "FLEE" },
+        { "priority": 2, "conditions": [{"subject": "nearby_loot_count", "operator": "gt", "value": 0}], "action": "MOVE_TO_NEAREST_LOOT" },
+        { "priority": 3, "conditions": [{"subject": "inventory_count", "operator": "gte", "value": 6}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_RANDOM"
+    },
+    "_default": {
+      "name": "AI-Balanced",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 30}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 5}], "action": "ATTACK_NEAREST" },
+        { "priority": 2, "conditions": [{"subject": "nearby_loot_count", "operator": "gt", "value": 0}], "action": "MOVE_TO_NEAREST_LOOT" },
+        { "priority": 3, "conditions": [{"subject": "inventory_count", "operator": "gte", "value": 4}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_RANDOM"
+    }
+  },
+  "replan": {
+    "critical_hp": {
+      "name": "AI-Retreat",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 50}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 5}], "action": "FLEE" },
+        { "priority": 2, "conditions": [{"subject": "distance_to_extract", "operator": "lte", "value": 15}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_EXTRACT",
+      "cognitive": {
+        "reasoning": "HP is critically low. Continuing combat would be suicidal. Need to retreat immediately, heal if possible, and head toward extraction.",
+        "situation_assessment": "Critical health, high danger",
+        "chosen_approach": "Disengage from combat, prioritize healing and extraction",
+        "threat_level": "critical",
+        "resource_status": "depleted",
+        "objective": "Survive and extract",
+        "confidence": 0.9
+      }
+    },
+    "enemy_nearby_strong": {
+      "name": "AI-Fight",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 25}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "has_grenade", "operator": "gte", "value": 1}, {"subject": "nearest_enemy_distance", "operator": "lte", "value": 3}], "action": "USE_GRENADE" },
+        { "priority": 2, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 8}], "action": "ATTACK_NEAREST" }
+      ],
+      "fallbackAction": "MOVE_TO_RANDOM",
+      "cognitive": {
+        "reasoning": "Multiple enemies detected nearby but HP is still healthy. Best to engage aggressively using grenades if available, then press the attack to eliminate threats.",
+        "situation_assessment": "High threat, strong position",
+        "chosen_approach": "Aggressive engagement with tactical utility usage",
+        "threat_level": "high",
+        "resource_status": "sufficient",
+        "objective": "Eliminate nearby threats",
+        "confidence": 0.7
+      }
+    },
+    "loot_available_safe": {
+      "name": "AI-Gather",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 30}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "nearby_loot_count", "operator": "gt", "value": 0}], "action": "MOVE_TO_NEAREST_LOOT" },
+        { "priority": 2, "conditions": [{"subject": "inventory_count", "operator": "gte", "value": 5}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_RANDOM",
+      "cognitive": {
+        "reasoning": "No enemies nearby and loot is available. This is a good opportunity to gather resources safely before other agents arrive.",
+        "situation_assessment": "Low threat, good looting opportunity",
+        "chosen_approach": "Collect available loot, prepare for extraction when inventory is full",
+        "threat_level": "low",
+        "resource_status": "scarce",
+        "objective": "Gather loot and build inventory",
+        "confidence": 0.85
+      }
+    },
+    "near_extract": {
+      "name": "AI-Extract",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 20}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "distance_to_extract", "operator": "eq", "value": 0}], "action": "EXTRACT" },
+        { "priority": 2, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 3}], "action": "FLEE" },
+        { "priority": 3, "conditions": [{"subject": "distance_to_extract", "operator": "gt", "value": 0}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_EXTRACT",
+      "cognitive": {
+        "reasoning": "Close to an extraction point. Should push toward it and extract. Avoid combat near the exit to not risk losing progress.",
+        "situation_assessment": "Near extraction, moderate risk",
+        "chosen_approach": "Rush extraction, avoid combat unless forced",
+        "threat_level": "medium",
+        "resource_status": "sufficient",
+        "objective": "Reach extraction point and extract safely",
+        "confidence": 0.8
+      }
+    },
+    "_default": {
+      "name": "AI-Adaptive",
+      "rules": [
+        { "priority": 0, "conditions": [{"subject": "hp_percent", "operator": "lt", "value": 30}], "action": "HEAL" },
+        { "priority": 1, "conditions": [{"subject": "nearest_enemy_distance", "operator": "lte", "value": 6}], "action": "ATTACK_NEAREST" },
+        { "priority": 2, "conditions": [{"subject": "nearby_loot_count", "operator": "gt", "value": 0}], "action": "MOVE_TO_NEAREST_LOOT" },
+        { "priority": 3, "conditions": [{"subject": "inventory_count", "operator": "gte", "value": 4}], "action": "MOVE_TO_EXTRACT" }
+      ],
+      "fallbackAction": "MOVE_TO_RANDOM",
+      "cognitive": {
+        "reasoning": "Situation is stable with no immediate threats or urgent needs. Maintain a balanced approach: engage enemies at medium range, loot when safe, extract when ready.",
+        "situation_assessment": "Stable, balanced situation",
+        "chosen_approach": "Balanced play - fight, loot, and extract as opportunities arise",
+        "threat_level": "medium",
+        "resource_status": "sufficient",
+        "objective": "Balanced survival and progression",
+        "confidence": 0.6
+      }
+    }
+  }
+}
