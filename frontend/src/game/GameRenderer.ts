@@ -5,12 +5,13 @@ import { getVisibleTilesCircular, VISION_RADIUS } from "./VisionSystem";
 import {
   MAP_WIDTH,
   MAP_HEIGHT,
-  LERP_SPEED,
   BG_COLOR,
   ZOOM_MIN,
   ZOOM_MAX,
   ISO_TILE_WIDTH,
   ISO_TILE_HEIGHT,
+  LERP_TARGET_MS,
+  RECONCILE_SNAP_TILES,
 } from "./constants";
 import { tileToScreen, screenToTile, getIsoBounds } from "./IsometricUtils";
 import type { IsoTileType } from "./IsometricTileFactory";
@@ -152,8 +153,8 @@ export class GameRenderer {
     // Set up zoom/pan
     this.setupInteraction(canvas);
 
-    // Ticker for lerp animation
-    this.app.ticker.add(() => this.tick());
+    // Ticker for lerp animation (deltaMS-aware)
+    this.app.ticker.add((ticker) => this.tick(ticker.deltaMS));
   }
 
   private renderFloor() {
@@ -435,19 +436,21 @@ export class GameRenderer {
     );
   }
 
-  private tick() {
-    // Lerp all agents toward their target positions
+  private tick(deltaMs: number) {
+    const t = Math.min(1, deltaMs / LERP_TARGET_MS);
+
+    // Lerp all agents toward their target positions with snap threshold
     this.agents.forEach((agentSprite) => {
-      agentSprite.currentX = lerp(
-        agentSprite.currentX,
-        agentSprite.targetX,
-        LERP_SPEED
-      );
-      agentSprite.currentY = lerp(
-        agentSprite.currentY,
-        agentSprite.targetY,
-        LERP_SPEED
-      );
+      const dx = agentSprite.targetX - agentSprite.currentX;
+      const dy = agentSprite.targetY - agentSprite.currentY;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= RECONCILE_SNAP_TILES) {
+        agentSprite.currentX = agentSprite.targetX;
+        agentSprite.currentY = agentSprite.targetY;
+      } else {
+        agentSprite.currentX = lerp(agentSprite.currentX, agentSprite.targetX, t);
+        agentSprite.currentY = lerp(agentSprite.currentY, agentSprite.targetY, t);
+      }
       const { screenX, screenY } = tileToScreen(agentSprite.currentX, agentSprite.currentY);
       agentSprite.container.x = screenX;
       agentSprite.container.y = screenY;
@@ -457,8 +460,16 @@ export class GameRenderer {
 
     // Lerp zombies
     this.zombieSprites.forEach((zombieSprite) => {
-      zombieSprite.currentX = lerp(zombieSprite.currentX, zombieSprite.targetX, LERP_SPEED);
-      zombieSprite.currentY = lerp(zombieSprite.currentY, zombieSprite.targetY, LERP_SPEED);
+      const dx = zombieSprite.targetX - zombieSprite.currentX;
+      const dy = zombieSprite.targetY - zombieSprite.currentY;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= RECONCILE_SNAP_TILES) {
+        zombieSprite.currentX = zombieSprite.targetX;
+        zombieSprite.currentY = zombieSprite.targetY;
+      } else {
+        zombieSprite.currentX = lerp(zombieSprite.currentX, zombieSprite.targetX, t);
+        zombieSprite.currentY = lerp(zombieSprite.currentY, zombieSprite.targetY, t);
+      }
       const { screenX, screenY } = tileToScreen(zombieSprite.currentX, zombieSprite.currentY);
       zombieSprite.container.x = screenX;
       zombieSprite.container.y = screenY;
@@ -666,6 +677,23 @@ export class GameRenderer {
       agentSprite.sprite.alpha = 0.3;
       agentSprite.sprite.tint = 0x00ff00;
     }
+  }
+
+  predictLocalMove(sessionId: string, dx: number, dy: number) {
+    const agentSprite = this.agents.get(sessionId);
+    if (!agentSprite) return;
+    const tx = agentSprite.targetX + dx;
+    const ty = agentSprite.targetY + dy;
+    if (tx < 0 || tx >= this.mapW || ty < 0 || ty >= this.mapH) return;
+    if (this.wallSet?.has(`${tx},${ty}`)) return;
+    agentSprite.targetX = tx;
+    agentSprite.targetY = ty;
+    agentSprite.currentX = tx;
+    agentSprite.currentY = ty;
+    const { screenX, screenY } = tileToScreen(tx, ty);
+    agentSprite.container.x = screenX;
+    agentSprite.container.y = screenY;
+    agentSprite.container.zIndex = tx + ty;
   }
 
   removeAgent(sessionId: string) {

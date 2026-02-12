@@ -1,7 +1,7 @@
 export const GAME = {
   MAP_WIDTH: 80,
   MAP_HEIGHT: 80,
-  TICK_MS: 300,
+  TICK_MS: 120,
   MAX_PLAYERS: 10,
   LOOT_BOX_COUNT: 40,
   EXTRACTION: {

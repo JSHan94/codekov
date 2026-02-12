@@ -216,6 +216,8 @@ export default function GameCanvas() {
     let client: GameClient | null = null;
     let inputManager: InputManager | null = null;
     let agentCount = 0;
+    let lastHudUpdate = 0;
+    const HUD_THROTTLE_MS = 200;
 
     // Track rendered entities (idempotent during primary migration)
     const renderedAgents = new Set<string>();
@@ -399,6 +401,9 @@ export default function GameCanvas() {
 
         onStateChange(tick, phase) {
           if (cancelled) return;
+          const now = Date.now();
+          if (now - lastHudUpdate < HUD_THROTTLE_MS) return;
+          lastHudUpdate = now;
           const fields = client!.getStateFields();
           setHud((prev) => ({ ...prev, tick, phase, ...fields }));
           // Update zombie/extraction HUD

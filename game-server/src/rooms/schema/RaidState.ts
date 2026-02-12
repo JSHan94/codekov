@@ -47,6 +47,10 @@ export class Agent extends Schema {
   // Manual control (server-only, not synced)
   manualControlActive: boolean = false;
   pendingManualAction: { type: string; dx?: number; dy?: number; targetSessionId?: string } | null = null;
+  manualSeqCounter: number = 0;
+  manualLastAckSeq: number = -1;
+  manualLatestMove: { type: "MOVE"; dx: number; dy: number; seq: number; ts?: number } | null = null;
+  manualActionQueue: Array<{ type: string; dx?: number; dy?: number; targetSessionId?: string; seq: number; ts?: number }> = [];
   dodgeCooldownUntilTick: number = 0;
   dodgeTicksRemaining: number = 0;
 

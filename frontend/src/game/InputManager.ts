@@ -8,6 +8,12 @@ export class InputManager {
   private renderer: GameRenderer;
   private container: HTMLElement;
 
+  // Reliability + prediction
+  private seqCounter = 0;
+  private lastAckSeq = -1;
+  private pending = new Map<number, { action: string; payload: Record<string, unknown>; kind: "move" | "event"; sentAt: number }>();
+  private readonly resendWindowMs = 300;
+
   // Key state tracking
   private keysDown = new Set<string>();
   private lastMoveDir: { dx: number; dy: number } = { dx: 0, dy: 1 };
@@ -37,6 +43,8 @@ export class InputManager {
   enable(): void {
     if (this.enabled) return;
     this.enabled = true;
+
+    this.client.setInputAckHandler((seq) => this.handleAck(seq));
 
     this.onKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in an input
@@ -127,10 +135,77 @@ export class InputManager {
     }
 
     this.keysDown.clear();
+    this.pending.clear();
+    this.seqCounter = 0;
+    this.lastAckSeq = -1;
   }
 
   destroy(): void {
     this.disable();
+  }
+
+  private nextSeq(): number {
+    this.seqCounter += 1;
+    return this.seqCounter;
+  }
+
+  private handleAck(seq: number): void {
+    if (seq <= this.lastAckSeq) return;
+    this.lastAckSeq = seq;
+    for (const key of Array.from(this.pending.keys())) {
+      if (key <= seq) {
+        this.pending.delete(key);
+      }
+    }
+  }
+
+  private resendUnacked(now: number): void {
+    for (const [seq, entry] of this.pending) {
+      if (seq <= this.lastAckSeq) {
+        this.pending.delete(seq);
+        continue;
+      }
+      if (now - entry.sentAt >= this.resendWindowMs) {
+        entry.sentAt = now;
+        this.dispatch(entry.action, entry.payload, seq);
+      }
+    }
+  }
+
+  private recordPending(seq: number, action: string, payload: Record<string, unknown>, kind: "move" | "event") {
+    this.pending.set(seq, { action, payload, kind, sentAt: performance.now() });
+  }
+
+  private dispatch(action: string, payload: Record<string, unknown>, seq?: number): void {
+    const ts = Date.now();
+    switch (action) {
+      case "MOVE": {
+        const { dx, dy } = payload as { dx: number; dy: number };
+        this.client.sendPlayerMove(dx, dy, seq, ts);
+        break;
+      }
+      case "DODGE": {
+        const { dx, dy } = payload as { dx: number; dy: number };
+        this.client.sendPlayerDodge(dx, dy, seq, ts);
+        break;
+      }
+      case "LOOT": {
+        this.client.sendPlayerLoot(seq, ts);
+        break;
+      }
+      case "ATTACK": {
+        const { targetSessionId } = payload as { targetSessionId: string };
+        this.client.sendPlayerAttack(targetSessionId, seq, ts);
+        break;
+      }
+      case "ATTACK_ZOMBIE": {
+        const { zombieId } = payload as { zombieId: string };
+        this.client.sendPlayerAttackZombie(zombieId, seq, ts);
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   private getMoveDirFromKeys(): { dx: number; dy: number } {
@@ -146,13 +221,19 @@ export class InputManager {
   }
 
   private flush(): void {
+    const now = performance.now();
+    this.resendUnacked(now);
+
     // Priority: dodge > attack > loot > move
 
     if (this.pendingDodge) {
       this.pendingDodge = false;
       const { dx, dy } = this.lastMoveDir;
       if (dx !== 0 || dy !== 0) {
-        this.client.sendPlayerDodge(dx, dy);
+        const seq = this.nextSeq();
+        const payload = { dx, dy };
+        this.recordPending(seq, "DODGE", payload, "event");
+        this.dispatch("DODGE", payload, seq);
       }
       return;
     }
@@ -160,20 +241,29 @@ export class InputManager {
     if (this.pendingAttackZombie) {
       const zombieId = this.pendingAttackZombie;
       this.pendingAttackZombie = null;
-      this.client.sendPlayerAttackZombie(zombieId);
+      const seq = this.nextSeq();
+      const payload = { zombieId };
+      this.recordPending(seq, "ATTACK_ZOMBIE", payload, "event");
+      this.dispatch("ATTACK_ZOMBIE", payload, seq);
       return;
     }
 
     if (this.pendingAttackTarget) {
       const target = this.pendingAttackTarget;
       this.pendingAttackTarget = null;
-      this.client.sendPlayerAttack(target);
+      const seq = this.nextSeq();
+      const payload = { targetSessionId: target };
+      this.recordPending(seq, "ATTACK", payload, "event");
+      this.dispatch("ATTACK", payload, seq);
       return;
     }
 
     if (this.pendingLoot) {
       this.pendingLoot = false;
-      this.client.sendPlayerLoot();
+      const seq = this.nextSeq();
+      const payload: Record<string, unknown> = {};
+      this.recordPending(seq, "LOOT", payload, "event");
+      this.dispatch("LOOT", payload, seq);
       return;
     }
 
@@ -193,7 +283,16 @@ export class InputManager {
     // Continuous movement while keys held
     const dir = this.getMoveDirFromKeys();
     if (dir.dx !== 0 || dir.dy !== 0) {
-      this.client.sendPlayerMove(dir.dx, dir.dy);
+      const seq = this.nextSeq();
+      const payload = { dx: dir.dx, dy: dir.dy };
+      this.recordPending(seq, "MOVE", payload, "move");
+      this.dispatch("MOVE", payload, seq);
+
+      // Client-side prediction for snappier feel
+      const myId = this.client.getMySessionId();
+      if (myId) {
+        this.renderer.predictLocalMove(myId, dir.dx, dir.dy);
+      }
     }
   }
 }

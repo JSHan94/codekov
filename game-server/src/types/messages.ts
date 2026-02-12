@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { StrategySchema } from "./strategy.js";
 
+// Shared envelope for sequenced manual inputs
+const ManualInputEnvelope = {
+  seq: z.number().int().nonnegative().optional(),
+  ts: z.number().int().nonnegative().optional(),
+};
+
 export const OverrideCommandSchema = z.object({
   action: z.enum(["FLEE", "HEAL"]),
 });
@@ -9,21 +15,27 @@ export type OverrideCommand = z.infer<typeof OverrideCommandSchema>;
 export const PlayerMoveSchema = z.object({
   dx: z.number().int().min(-1).max(1),
   dy: z.number().int().min(-1).max(1),
+  ...ManualInputEnvelope,
 });
 
-export const PlayerLootSchema = z.object({});
+export const PlayerLootSchema = z.object({
+  ...ManualInputEnvelope,
+});
 
 export const PlayerAttackSchema = z.object({
   targetSessionId: z.string().min(1),
+  ...ManualInputEnvelope,
 });
 
 export const PlayerDodgeSchema = z.object({
   dx: z.number().int().min(-1).max(1),
   dy: z.number().int().min(-1).max(1),
+  ...ManualInputEnvelope,
 });
 
 export const PlayerAttackZombieSchema = z.object({
   zombieId: z.string().min(1),
+  ...ManualInputEnvelope,
 });
 
 export const UpdateStrategySchema = z.object({

@@ -94,6 +94,7 @@ export class RaidRoom extends Room<{ state: RaidState }> {
   state = new RaidState();
 
   private occupiedSpawns = new Set<string>();
+  private clientsBySession = new Map<string, Client>();
   private tileGrid: TileGrid;
   private smokeCounter = 0;
   private trapCounter = 0;
@@ -106,6 +107,60 @@ export class RaidRoom extends Room<{ state: RaidState }> {
   private isPaused = false;
   private stageConfig: StageConfig | null = null;
   private zombiesEnabled = true;
+
+  private sendInputAck(sessionId: string, seq: number) {
+    const client = this.clientsBySession.get(sessionId);
+    if (client) {
+      client.send("INPUT_ACK", { seq, tick: this.state.tick });
+    }
+  }
+
+  private enqueueManualInput(
+    agent: Agent,
+    manual: { type: string; dx?: number; dy?: number; targetSessionId?: string; seq?: number; ts?: number },
+  ) {
+    const seq = manual.seq ?? ++agent.manualSeqCounter;
+    if (seq <= agent.manualLastAckSeq) return; // stale
+
+    const normalized = { ...manual, seq, ts: manual.ts };
+    agent.manualSeqCounter = Math.max(agent.manualSeqCounter, seq);
+
+    if (manual.type === "MOVE") {
+      const dx = manual.dx ?? 0;
+      const dy = manual.dy ?? 0;
+      agent.manualLatestMove = { type: "MOVE", dx, dy, seq, ts: manual.ts };
+      return;
+    }
+
+    // Push one-shot actions; keep queue sorted and size-bounded
+    agent.manualActionQueue.push(normalized);
+    agent.manualActionQueue.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+    const MAX_MANUAL_QUEUE = 8; // ~1s at 120ms tick (user choice: 6-8 frames)
+    if (agent.manualActionQueue.length > MAX_MANUAL_QUEUE) {
+      agent.manualActionQueue.splice(0, agent.manualActionQueue.length - MAX_MANUAL_QUEUE);
+    }
+  }
+
+  private consumeManualInput(agent: Agent) {
+    // Prioritize queued one-shot events
+    if (agent.manualActionQueue.length > 0) {
+      const next = agent.manualActionQueue.shift()!;
+      if (typeof next.seq === "number") {
+        agent.manualLastAckSeq = Math.max(agent.manualLastAckSeq, next.seq);
+        this.sendInputAck(agent.sessionId, agent.manualLastAckSeq);
+      }
+      return next;
+    }
+
+    const move = agent.manualLatestMove;
+    if (move && move.seq > agent.manualLastAckSeq) {
+      agent.manualLastAckSeq = move.seq;
+      this.sendInputAck(agent.sessionId, agent.manualLastAckSeq);
+      return move;
+    }
+
+    return null;
+  }
 
   onAuth(_client: Client, options: Record<string, unknown>) {
     if (DEV_MODE) {
@@ -144,6 +199,8 @@ export class RaidRoom extends Room<{ state: RaidState }> {
       if (!agent) return;
       agent.manualControlActive = true;
       agent.pendingManualAction = null;
+      agent.manualLatestMove = null;
+      agent.manualActionQueue = [];
     },
 
     PLAYER_MOVE: (client: Client, message: unknown) => {
@@ -152,7 +209,13 @@ export class RaidRoom extends Room<{ state: RaidState }> {
       const agent = this.state.agents.get(client.sessionId);
       if (!agent || agent.state !== "alive") return;
       agent.manualControlActive = true;
-      agent.pendingManualAction = { type: "MOVE", dx: parsed.data.dx, dy: parsed.data.dy };
+      this.enqueueManualInput(agent, {
+        type: "MOVE",
+        dx: parsed.data.dx,
+        dy: parsed.data.dy,
+        seq: parsed.data.seq,
+        ts: parsed.data.ts,
+      });
     },
 
     PLAYER_LOOT: (client: Client, message: unknown) => {
@@ -161,7 +224,11 @@ export class RaidRoom extends Room<{ state: RaidState }> {
       const agent = this.state.agents.get(client.sessionId);
       if (!agent || agent.state !== "alive") return;
       agent.manualControlActive = true;
-      agent.pendingManualAction = { type: "LOOT" };
+      this.enqueueManualInput(agent, {
+        type: "LOOT",
+        seq: parsed.data.seq,
+        ts: parsed.data.ts,
+      });
     },
 
     PLAYER_ATTACK: (client: Client, message: unknown) => {
@@ -170,7 +237,12 @@ export class RaidRoom extends Room<{ state: RaidState }> {
       const agent = this.state.agents.get(client.sessionId);
       if (!agent || agent.state !== "alive") return;
       agent.manualControlActive = true;
-      agent.pendingManualAction = { type: "ATTACK", targetSessionId: parsed.data.targetSessionId };
+      this.enqueueManualInput(agent, {
+        type: "ATTACK",
+        targetSessionId: parsed.data.targetSessionId,
+        seq: parsed.data.seq,
+        ts: parsed.data.ts,
+      });
     },
 
     PLAYER_DODGE: (client: Client, message: unknown) => {
@@ -180,7 +252,13 @@ export class RaidRoom extends Room<{ state: RaidState }> {
       if (!agent || agent.state !== "alive") return;
       if (this.state.tick < agent.dodgeCooldownUntilTick) return;
       agent.manualControlActive = true;
-      agent.pendingManualAction = { type: "DODGE", dx: parsed.data.dx, dy: parsed.data.dy };
+      this.enqueueManualInput(agent, {
+        type: "DODGE",
+        dx: parsed.data.dx,
+        dy: parsed.data.dy,
+        seq: parsed.data.seq,
+        ts: parsed.data.ts,
+      });
     },
 
     PLAYER_ATTACK_ZOMBIE: (client: Client, message: unknown) => {
@@ -189,7 +267,12 @@ export class RaidRoom extends Room<{ state: RaidState }> {
       const agent = this.state.agents.get(client.sessionId);
       if (!agent || agent.state !== "alive") return;
       agent.manualControlActive = true;
-      agent.pendingManualAction = { type: "ATTACK_ZOMBIE", targetSessionId: parsed.data.zombieId };
+      this.enqueueManualInput(agent, {
+        type: "ATTACK_ZOMBIE",
+        targetSessionId: parsed.data.zombieId,
+        seq: parsed.data.seq,
+        ts: parsed.data.ts,
+      });
     },
 
     INITIATE_RECRUITMENT: (client: Client, message: unknown) => {
@@ -357,6 +440,7 @@ export class RaidRoom extends Room<{ state: RaidState }> {
     client: Client,
     options: Record<string, unknown>,
   ) {
+    this.clientsBySession.set(client.sessionId, client);
     // Validate strategy
     const strategyResult = StrategySchema.safeParse(options.strategy);
     if (!strategyResult.success) {
@@ -698,29 +782,30 @@ export class RaidRoom extends Room<{ state: RaidState }> {
       }
 
       // Manual control branch
-      if (agent.manualControlActive && agent.pendingManualAction) {
-        const manual = agent.pendingManualAction;
-        agent.pendingManualAction = null;
-        const result = resolveManualAction(agent, manual, this.state, this.tileGrid, this.state.tick);
-        if (result) {
-          decisions.set(agent.sessionId, result);
-          agent.currentAction = result.action;
-          // Broadcast dodge event
-          if (manual.type === "DODGE" && agent.isDodging) {
-            const dodgeEvt: DodgeEvent = {
-              tick: this.state.tick,
-              agentSessionId: agent.sessionId,
-              x: agent.x,
-              y: agent.y,
-            };
-            this.broadcast("DODGE_EVENT", dodgeEvt);
+      if (agent.manualControlActive) {
+        const manual = this.consumeManualInput(agent);
+        if (manual) {
+          const result = resolveManualAction(agent, manual, this.state, this.tileGrid, this.state.tick);
+          if (result) {
+            decisions.set(agent.sessionId, result);
+            agent.currentAction = result.action;
+            // Broadcast dodge event
+            if (manual.type === "DODGE" && agent.isDodging) {
+              const dodgeEvt: DodgeEvent = {
+                tick: this.state.tick,
+                agentSessionId: agent.sessionId,
+                x: agent.x,
+                y: agent.y,
+              };
+              this.broadcast("DODGE_EVENT", dodgeEvt);
+            }
+          } else {
+            agent.currentAction = "IDLE";
           }
         } else {
+          // Manual control active but no pending action -- idle
           agent.currentAction = "IDLE";
         }
-      } else if (agent.manualControlActive) {
-        // Manual control active but no pending action -- idle
-        agent.currentAction = "IDLE";
       // Ally agent decision
       } else if (agent.allyStatus === "ally") {
         const decision = allyDecide(agent, this.state, this.tileGrid);
@@ -1442,6 +1527,7 @@ export class RaidRoom extends Room<{ state: RaidState }> {
   onLeave(client: Client, code: CloseCode) {
     const agent = this.state.agents.get(client.sessionId);
     if (!agent) return;
+    this.clientsBySession.delete(client.sessionId);
 
     // Mid-combat disconnect = death (permadeath)
     if (agent.state === "alive") {
